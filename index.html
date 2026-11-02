@@ -1,0 +1,705 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Dicing Saw Fleet Monitor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: 3D fleet of five dicers on the left; sidebar = controls, medians, fleet table (5 machines × Y1/Y2/X); strip under the scene = selected sensor charts + condition matrix. Same dark control-room family as the plating-line and drilling sims. */
+:root{
+  --bg:#13171b; --panel:#1b2126; --raise:#232a31; --line:#313a43; --fg:#e4e8ea; --muted:#8d99a3;
+  --ok:#4cc38a; --warn:#f0c23c; --bad:#ef5f55; --off:#56616b;
+  --ax:#5ec8e5; --ay:#a99af0; --az:#d9dee2;
+  --display:"Chakra Petch","Noto Sans TC",system-ui,sans-serif;
+  --body:"Noto Sans TC",system-ui,-apple-system,"PingFang TC",sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);overflow:hidden}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 384px;height:100%}
+.main{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0}
+#stage{position:relative;min-height:0;overflow:hidden}
+#stage canvas{display:block;outline:none}
+.stagehead{position:absolute;top:12px;left:max(16px,env(safe-area-inset-left,0px));pointer-events:none;display:flex;flex-direction:column;gap:2px}
+.stagehead h1{margin:0;font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.04em}
+.stagehead p{margin:0;font-size:12px;color:var(--muted)}
+.rpmbig{position:absolute;top:12px;right:16px;text-align:right;pointer-events:none}
+.rpmbig b{display:block;font-family:var(--display);font-weight:600;font-size:28px;font-variant-numeric:tabular-nums}
+.rpmbig span{font-size:12px;color:var(--muted)}
+.stagebtns{position:absolute;left:max(16px,env(safe-area-inset-left,0px));top:66px;display:flex;gap:6px}
+.stagebtns button{padding:6px 10px;font-size:12px;background:rgba(35,42,49,.85)}
+.bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:16px;border-top:1px solid var(--line);background:var(--panel)}
+.box{display:flex;flex-direction:column;gap:6px;min-width:0}
+.boxhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.label{font-size:11px;letter-spacing:.12em;color:var(--muted);font-family:var(--display);text-transform:uppercase}
+.legend{display:flex;gap:10px;font-size:11px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:2px;vertical-align:3px;margin-right:4px}
+canvas.chart{width:100%;height:84px;display:block}
+.side{overflow:auto;border-left:1px solid var(--line);background:var(--panel);padding-block:14px;padding-left:14px;padding-right:max(14px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}
+button{font:inherit;color:var(--fg);background:var(--raise);border:1px solid var(--line);border-radius:7px;padding:8px;cursor:pointer;touch-action:manipulation}
+button:hover{background:#2c343c}
+button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.rpms{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.rpms button{padding:7px 0;font-family:var(--display);font-variant-numeric:tabular-nums;font-size:13px}
+.rpms button small{display:block;font-size:10px;font-family:var(--body);opacity:.7}
+.row2{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.hint{font-size:12px;color:var(--muted);line-height:1.5}
+.medians{background:var(--raise);border:1px solid var(--line);border-radius:9px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.mline{display:grid;grid-template-columns:92px auto 1fr;gap:10px;align-items:baseline;font-variant-numeric:tabular-nums}
+.mline .k{font-size:12px;color:var(--muted)}
+.mline .v{font-family:var(--display);font-weight:600;font-size:24px;line-height:1}
+.mline .th{font-size:11px;color:var(--muted);text-align:right}
+.mfoot{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.prog{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.prog i{display:block;height:100%;width:0;background:var(--muted)}
+.fleet{display:grid;grid-template-columns:14px 34px repeat(3,minmax(0,1fr));gap:5px;align-items:stretch}
+.fleet .h{font-size:11px;color:var(--muted);text-align:center;padding-bottom:2px}
+.fleet .mid{display:flex;align-items:center;font-family:var(--display);font-weight:600}
+.lamp{width:12px;height:12px;border-radius:50%;background:var(--off);align-self:center}
+.lamp.ok{background:var(--ok)}.lamp.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}.lamp.bad{background:var(--bad);box-shadow:0 0 10px var(--bad)}
+.cell{display:flex;flex-direction:column;align-items:flex-end;gap:1px;padding:5px 7px;font-variant-numeric:tabular-nums;min-width:0}
+.cell .v{font-family:var(--display);font-size:15px;line-height:1.1}
+.cell .r{font-size:11px;color:var(--muted)}
+.cell .t{font-size:10px;color:var(--muted)}
+.cell.warn{border-color:var(--warn);background:#3a3217}.cell.warn .r{color:var(--warn)}
+.cell.bad{border-color:var(--bad);background:#3d1d1b}.cell.bad .r{color:var(--bad)}
+.cell[aria-pressed="true"]{background:var(--raise);color:var(--fg);box-shadow:inset 0 0 0 2px var(--fg)}
+.cell.warn[aria-pressed="true"]{background:#3a3217}.cell.bad[aria-pressed="true"]{background:#3d1d1b}
+.tabs{display:flex;gap:4px}
+.tabs button{padding:3px 10px;font-size:12px;font-family:var(--display)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:12px}
+th,td{padding:4px 6px;text-align:right;white-space:nowrap}
+th{font-weight:500;color:var(--muted);font-size:11px}
+th:first-child,td:first-child{text-align:left}
+td.cur{outline:1px solid var(--muted);outline-offset:-1px}
+td.warn{background:#4a3d14;color:#ffe08a}td.bad{background:#4d1d1a;color:#ffb3ab}
+tr.med td{color:var(--muted);border-top:1px solid var(--line)}
+.toast{position:fixed;left:50%;top:calc(60px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--raise);border:1px solid var(--muted);padding:7px 14px;border-radius:7px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:calc(100% - 32px)}
+.toast.show{opacity:1}
+/* demo / kiosk */
+.cap{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:14px;max-width:min(560px,calc(100% - 32px));background:rgba(19,23,27,.42);border-left:3px solid var(--fg);border-radius:4px;padding:7px 12px;display:flex;flex-direction:column;gap:2px;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,.8)}
+.cap .k{display:flex;gap:4px;align-items:center;font-family:var(--display);font-size:10px;letter-spacing:.14em;color:var(--muted)}
+.cap .k i{width:10px;height:2px;border-radius:2px;background:var(--line)}
+.cap .k i.on{background:var(--fg)}
+.cap b{font-family:var(--display);font-weight:600;font-size:clamp(17px,1.9vw,24px);letter-spacing:.02em;text-wrap:balance}
+.cap span{font-size:clamp(13px,1.15vw,15px);color:#d5dbdf;line-height:1.45;text-wrap:balance}
+.cap span em{font-style:normal;color:var(--warn)}.cap span strong{font-weight:700;color:var(--bad)}
+.demoBadge{display:none;font-family:var(--display);font-size:12px;letter-spacing:.14em;color:var(--bg);background:var(--fg);border-radius:4px;padding:2px 8px;align-self:flex-start;margin-top:4px}
+body.demo .demoBadge{display:inline-block}
+body.demo .ctrl{display:none}
+body.demo #bDemo2{display:none}
+.hl{outline:2px solid var(--warn);outline-offset:3px;border-radius:4px}
+@media (max-width:860px){
+  .cap{bottom:8px;padding:5px 10px}
+  body{overflow:auto}
+  html,body{height:auto}
+  .app{display:flex;flex-direction:column;height:auto}
+  .main{display:contents}
+  #stage{order:1;height:50vh;min-height:300px}
+  .side{order:2;border-left:0;border-top:1px solid var(--line);overflow:visible;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .bottom{order:3;grid-template-columns:1fr;padding-right:max(16px,env(safe-area-inset-right,0px))}
+}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+.mb{display:inline-block;font-family:var(--display);font-size:10px;font-weight:600;padding:0 5px;border-radius:3px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.mb.mA{color:var(--ok);border-color:var(--ok)}.mb.mB{color:var(--warn);border-color:var(--warn)}.mb.mC,.mb.mD1{color:var(--bad);border-color:var(--bad)}.mb.mD2{color:var(--ay);border-color:var(--ay)}
+td.act{text-align:left;white-space:normal;min-width:150px;color:#c5ccd1;font-size:11px}
+tr.sel td{background:#232a31}
+.bottom{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}
+.mline{grid-template-columns:104px auto 1fr}
+</style>
+
+<div class="app">
+  <div class="main">
+    <div id="stage">
+      <div class="stagehead">
+        <h1>Dicing Saw Fleet Monitor</h1>
+        <p>5 dual-spindle dicing saws · one 3×3 cm Smart Tag on each Y1, Y2 and X motor</p>
+        <span class="demoBadge">AUTO DEMO</span>
+      </div>
+      <div class="stagebtns"><button id="bDemo2">▶ Booth demo</button><button id="bFull">Full screen</button></div>
+      <div class="rpmbig"><b id="rpmNow">35,000</b><span id="modeNow">Idle · RPM</span></div>
+      <div class="cap" id="cap" hidden><div class="k" id="capK"></div><b id="capT"></b><span id="capS"></span></div>
+    </div>
+    <div class="bottom">
+      <div class="box">
+        <div class="boxhead"><span class="label" id="vibTitle">M1 · Y1 triaxial vibration RMS · last 2 min</span>
+          <span class="legend"><span><i style="background:var(--ax)"></i>X</span><span><i style="background:var(--ay)"></i>Y</span><span><i style="background:var(--az)"></i>Z</span><span id="tempNow"></span></span></div>
+        <canvas class="chart" id="cVib" style="height:64px"></canvas>
+        <div class="boxhead"><span class="label" id="profTitle">Idle speed profile</span>
+          <span class="legend"><span><i style="background:var(--ok)"></i>Green line</span><span><i style="background:var(--warn)"></i>Yellow line</span><span><i style="background:var(--fg)"></i>Regression</span></span></div>
+        <canvas class="chart" id="cProf" style="height:132px"></canvas>
+      </div>
+      <div class="box">
+        <div class="boxhead"><div class="tabs" id="tabs"></div><span class="legend" id="tabNote"></span></div>
+        <div id="pRank"><canvas class="chart" id="cRank" style="height:200px"></canvas></div>
+        <div id="pMode" class="tablewrap" hidden><table id="tMode"></table></div>
+        <div id="pRatio" class="tablewrap" hidden><table id="tRatio"></table></div>
+        <div class="hint" id="tabHint"></div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="side" aria-label="Controls and fleet status">
+    <div class="box ctrl">
+      <span class="label">Operating mode</span>
+      <div class="seg"><button id="mIdle" aria-pressed="true">Idle</button><button id="mProd" aria-pressed="false">Production (cutting)</button></div>
+    </div>
+    <div class="box ctrl" id="rpmBox">
+      <span class="label">Idle spindle speed (Y1 and Y2 together)</span>
+      <div class="rpms" id="rpms" style="grid-template-columns:repeat(4,1fr)"></div>
+      <div class="row2"><button id="bSweep">Auto sweep 4 speeds</button><span class="hint" id="sweepNote"></span></div>
+    </div>
+    <div class="box ctrl" id="prodBox" hidden>
+      <span class="label">Production</span>
+      <div class="hint">Spindles at 40,000 RPM. The X motor pulls the wafer through both blades; after one direction the chuck turns 90° and cuts again.</div>
+    </div>
+
+    <div class="medians" aria-live="polite">
+      <div id="medLines"></div>
+      <div class="mfoot"><span id="medCond"></span><span id="winCnt"></span></div>
+      <div class="prog" title="Progress of the current 10 s window"><i id="prog"></i></div>
+      <div class="hint" id="trimNote" style="font-size:11px"></div>
+    </div>
+
+    <div class="box">
+      <span class="label">Average decay rate per motor (tap to inspect)</span>
+      <div class="fleet" id="fleet"></div>
+    </div>
+
+    <div class="box ctrl">
+      <span class="label">Booth</span>
+      <button id="bDemo">▶ Start auto demo</button>
+      <div class="hint">Any touch hands control to the visitor; after 90 s without input the demo resumes. Add #demo to the link to start playing on open.</div>
+    </div>
+    <div class="box ctrl">
+      <span class="label">Simulation</span>
+      <div class="row2"><span class="hint" style="min-width:76px">Data speed</span><div class="seg" style="flex:1" id="speeds"></div></div>
+      <div class="row2"><span class="hint" style="min-width:76px">Motor set</span>
+        <div class="seg" style="flex:1"><button id="scPreset" aria-pressed="true">2 abnormal saws</button><button id="scNormal" aria-pressed="false">All healthy</button></div></div>
+      <button id="bClear">Clear averages and recompute</button>
+      <div class="hint">Two abnormal saws: M2 Y2 uniform aging (mode B) and M5 Y1 resonance at 50k (mode C). The other three saws are healthy.</div>
+    </div>
+  </aside>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function(){
+// ================= judgement rules (from the dicing-saw motor condition method) =================
+const IDLE=[35000,40000,45000,50000], PROD_RPM=40000, WIN=10, NM=5;
+const TRIM=6;                                   // drop the last 60 s (6 × 10 s windows) of every speed step
+const GREEN=r=>3.65+0.18*(r/1000-35);           // green line: baseline 3.65 at 35k + 0.18 per krpm
+const YEL_K=1.3;                                // yellow line = green × 1.3
+const SLOPE_REF=0.18;                           // population median slope (per krpm)
+const RES_K=1.5;                                // resonance: peak > mean of the other speeds × 1.5
+const RES_MIN=0.08;                             // …and it must stick out of the regression line (residual > 8% of the fitted value)
+const BAND={35000:[0.63,1.51],40000:[0.43,2.09],45000:[0.34,1.65],50000:[0.62,2.03]}; // Y1/Y2 health bands
+const CV_TH=0.5;                                // Y1/Y2 ratio instability across speeds
+const P_Y=1.3, P_R=1.5;                         // production: vs fleet median
+const SENS=['Y1','Y2','X'];
+// ================= simulated motor profiles (avg decay at 35/40/45/50k) =================
+const CASES=[
+  [[2.6,2.9,3.2,3.5],[2.4,2.75,3.1,3.45]],      // M1  A / A
+  [[2.8,3.2,3.6,4.0],[3.0,4.35,5.75,7.1]],      // M2  A / B uniform aging
+  [[2.5,2.85,3.2,3.55],[2.6,2.9,3.3,3.6]],      // M3  A / A
+  [[2.9,3.2,3.5,3.8],[2.7,3.0,3.35,3.7]],       // M4  A / A
+  [[2.5,2.8,3.2,12.5],[2.7,3.0,3.3,3.6]]         // M5  C @50k / A
+];
+const HEALTHY=[...Array(NM)].map((_,m)=>[0,1].map(k=>{const b=2.4+0.12*m+0.15*k,sl=0.06+0.012*((m+k)%3);return IDLE.map(r=>b+sl*(r/1000-35))}));
+const X_IDLE=[3.0,3.05,3.1,3.15], X_PROD=4.2, X_OFFS=[0.02,-0.03,0,0.03,-0.01], X_BAD={m:-1,k:1};
+const PROD_LOAD=1.25, PROD_EXTRA={'1-1':1.2};   // load amplifies M2 Y2 aging in production
+let scen='preset';
+function trueVal(m,s,rpm,prod){
+  if(s<2){const P=(scen==='preset'?CASES:HEALTHY)[m][s];
+    if(prod)return P[1]*PROD_LOAD*(scen==='preset'?(PROD_EXTRA[m+'-'+s]||1):1);
+    const i=IDLE.indexOf(rpm);return P[i<0?0:i]}
+  const xb=prod?X_PROD:X_IDLE[Math.max(0,IDLE.indexOf(rpm))];
+  return xb*(1+X_OFFS[m])*(scen==='preset'&&m===X_BAD.m?X_BAD.k:1);
+}
+function decayWindow(m,s,rpm,prod){return trueVal(m,s,rpm,prod)*(1+gn()*(prod?0.06:0.03))}
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C={ok:css('--ok'),warn:css('--warn'),bad:css('--bad'),off:css('--off'),fg:css('--fg'),muted:css('--muted'),line:css('--line'),ax:css('--ax'),ay:css('--ay'),az:css('--az')};
+const gn=()=>{let u=0;for(let i=0;i<4;i++)u+=Math.random();return (u-2)*0.87};
+const fmt=n=>n.toLocaleString('en-US');
+const median=a=>{const s=[...a].sort((x,y)=>x-y),n=s.length;return n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2};
+const avg=a=>a.reduce((x,y)=>x+y,0)/a.length;
+
+// ================= state =================
+const S={mode:'idle',rpmSet:35000,rpm:35000,speed:5,selM:0,selS:0,win:0,winValid:true,winKey:'r35000',sweep:null,trimmed:0,tab:'rank'};
+const results={}, pend={};
+const key=()=>S.mode==='prod'?'prod':'r'+S.rpmSet;
+const targetRpm=()=>S.mode==='prod'?PROD_RPM:S.rpmSet;
+const samples=[...Array(NM)].map(()=>[[],[],[]]);
+const temps=[...Array(NM)].map(()=>[22,22,24]);
+function stats(k){
+  const w=results[k];if(!w||!w.length)return null;
+  const prod=k==='prod',rpm=prod?PROD_RPM:+k.slice(1);
+  const av=[...Array(NM)].map((_,m)=>[0,1,2].map(s=>avg(w.map(r=>r[m][s]))));
+  const xMed=median(av.map(r=>r[2]));
+  const spMed=median(av.map(r=>r[0]).concat(av.map(r=>r[1])));
+  const G=GREEN(rpm),Yl=G*YEL_K;
+  const ref=av.map(r=>r.map((v,s)=>s<2?(prod?v/spMed:v/G):v/xMed));
+  const st=av.map((r,m)=>r.map((v,s)=>{
+    if(s<2&&!prod)return v>Yl?'bad':v>G?'warn':'ok';
+    const q=ref[m][s];return q>P_R?'bad':q>P_Y?'warn':'ok'}));
+  const worst=st.map(r=>r.includes('bad')?'bad':r.includes('warn')?'warn':'ok');
+  return {av,ref,st,worst,n:w.length,G,Yl,xMed,spMed,prod,rpm};
+}
+const XS=IDLE.map(r=>r/1000);
+function classify(m,s){
+  const sts=IDLE.map(r=>stats('r'+r));if(sts.some(x=>!x))return null;
+  const y=sts.map(x=>x.av[m][s]),xm=avg(XS),ym=avg(y);
+  let sxy=0,sxx=0;XS.forEach((x,i)=>{sxy+=(x-xm)*(y[i]-ym);sxx+=(x-xm)**2});
+  const slope=sxy/sxx,icpt=ym-slope*xm,fit=XS.map(x=>icpt+slope*x),res=y.map((v,i)=>v-fit[i]);
+  const mono=y.every((v,i)=>i===0||v>y[i-1]);
+  let ri=-1;y.forEach((v,i)=>{const o=avg(y.filter((_,j)=>j!==i));if(v>RES_K*o&&res[i]>RES_MIN*fit[i]&&(ri<0||res[i]>res[ri]))ri=i});
+  let mode;
+  if(slope<0)mode=ri===0?'D1':ri>0?'C':'D2';
+  else mode=ri>=0?'C':slope>SLOPE_REF?'B':'A';
+  return {y,slope,icpt,fit,res,mono,ri,mode,resRpm:ri>=0?IDLE[ri]:null};
+}
+function ratios(m){
+  const sts=IDLE.map(r=>stats('r'+r));
+  const r=sts.map((x,i)=>x?x.av[m][0]/x.av[m][1]:null);
+  const out=r.map((v,i)=>v===null?null:(v<BAND[IDLE[i]][0]?'low':v>BAND[IDLE[i]][1]?'high':null));
+  const have=r.filter(v=>v!==null);let cv=null;
+  if(have.length===4){const mu=avg(have);cv=Math.sqrt(avg(have.map(v=>(v-mu)**2)))/mu}
+  return {r,out,cv};
+}
+const MODE_TXT={A:'Healthy',B:'Uniform aging',C:'Asymmetric / resonance',D1:'Idle-end resonance',D2:'Declining anomaly'};
+const ACTION={A:'Routine check against its own idle baseline',B:'Track; schedule repair if the slope keeps rising',C:'Avoid the resonance speed in production; balance if needed',D1:'Check low-frequency sources and fastening; avoid the idle resonance band',D2:'Check looseness / preload and the measurement first',DIV:'Repair motor by motor'};
+function seed(){for(const k in results)delete results[k];for(const k in pend)delete pend[k];
+  IDLE.forEach(r=>{results['r'+r]=[...Array(6)].map(()=>[...Array(NM)].map((_,m)=>[0,1,2].map(s=>decayWindow(m,s,r,false))))})}
+seed();
+
+// ================= 3D =================
+const stage=document.getElementById('stage');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+stage.prepend(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x13171b);scene.fog=new THREE.Fog(0x13171b,26,50);
+const camera=new THREE.PerspectiveCamera(36,1,0.02,120);
+const controls=new THREE.OrbitControls(camera,renderer.domElement);
+controls.target.set(0,1.0,0);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*0.49;controls.minDistance=0.8;controls.maxDistance=30;
+scene.add(new THREE.HemisphereLight(0xe2eaf2,0x2a2620,0.62));
+const sun=new THREE.DirectionalLight(0xffffff,0.85);sun.position.set(-5,11,8);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-10,right:10,top:7,bottom:-5,near:1,far:32});scene.add(sun);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(60,30),new THREE.MeshStandardMaterial({color:0x1f2529,roughness:.95}));
+floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+const M=(c,o={})=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.55,metalness:.15},o));
+function box(w,h,d,mat,x,y,z,p){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;p.add(m);return m}
+function cyl(rt,rb,h,mat,x,y,z,p,seg=28){const m=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg),mat);m.position.set(x,y,z);m.castShadow=true;p.add(m);return m}
+function labelTex(t,bg,fg){const c=document.createElement('canvas');c.width=128;c.height=64;const g=c.getContext('2d');g.fillStyle=bg;g.fillRect(0,0,128,64);g.fillStyle=fg;g.font='600 40px "Chakra Petch",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(t,64,34);return new THREE.CanvasTexture(c)}
+const shell=M(0xd6dadd,{roughness:.6}),plinth=M(0x2a3036),steel=M(0x9aa3ab,{metalness:.7,roughness:.3}),dark=M(0x262c31,{metalness:.4,roughness:.5});
+const glass=new THREE.MeshStandardMaterial({color:0xbfd8e6,transparent:true,opacity:.09,roughness:.05,metalness:.1,depthWrite:false,side:THREE.DoubleSide});
+const SPX=3.2, MX=m=>(m-(NM-1)/2)*SPX;
+const WR=0.30, CUT_Y=1.132+0.12-0.012, UP_Y=1.40;
+const LINES=9, PITCH=0.0333;
+const machines=[...Array(NM)].map((_,m)=>{
+  const g=new THREE.Group();g.position.x=MX(m);scene.add(g);
+  // ---- fully-enclosed automatic dicer body (generic) ----
+  const FZ=1.7,BZ=-1.0,CZ=(FZ+BZ)/2,DEP=FZ-BZ,TOP=2.36;
+  box(2.26,0.06,DEP+0.06,plinth,0,0.03,CZ,g);
+  box(2.2,0.94,DEP,shell,0,0.53,CZ,g);
+  const trim=M(0x4b5660,{roughness:.5});
+  box(2.2,0.1,0.012,trim,0,0.11,FZ+0.006,g);                      // kick plate
+  [-0.37,0.37].forEach(x=>box(0.008,0.7,0.012,M(0x9ca5ac),x,0.55,FZ+0.007,g)); // door seams
+  [-0.45,0.29].forEach(x=>box(0.03,0.16,0.02,M(0x8a939a,{metalness:.6}),x,0.62,FZ+0.012,g));
+  for(let i=0;i<6;i++)box(0.5,0.012,0.012,M(0x5a646d),0.75,0.3+i*0.04,FZ+0.007,g); // vent
+  box(2.2,0.05,0.012,trim,0,0.97,FZ+0.006,g);
+  const lbl=new THREE.Mesh(new THREE.PlaneGeometry(0.36,0.18),new THREE.MeshBasicMaterial({map:labelTex('M'+(m+1),'#e4e8ea','#13171b')}));
+  lbl.position.set(-0.8,0.78,FZ+0.008);g.add(lbl);
+  // upper enclosure: frame posts, glass panels, opaque back and header
+  const frame=M(0x6d7780,{metalness:.5,roughness:.4});
+  [[-1.08,FZ-0.02],[1.08,FZ-0.02],[-1.08,BZ+0.02],[1.08,BZ+0.02],[-1.08,CZ],[1.08,CZ]].forEach(([x,z])=>box(0.04,TOP-1.0,0.04,frame,x,(TOP+1.0)/2,z,g));
+  box(2.2,0.04,0.04,frame,0,TOP,FZ-0.02,g);box(2.2,0.04,0.04,frame,0,TOP,BZ+0.02,g);
+  [-1.08,1.08].forEach(x=>box(0.04,0.04,DEP,frame,x,TOP,CZ,g));
+  box(2.2,TOP-1.0,0.03,shell,0,(TOP+1.0)/2,BZ+0.015,g);
+  box(2.2,0.16,0.03,shell,0,TOP-0.1,FZ-0.01,g);
+  box(1.0,0.025,0.032,M(0x3a4651),-0.45,TOP-0.1,FZ+0.002,g);
+  const pane=(w,h,x,y,z,ry,rx)=>{const q=new THREE.Mesh(new THREE.PlaneGeometry(w,h),glass);q.position.set(x,y,z);q.rotation.y=ry||0;q.rotation.x=rx||0;g.add(q)};
+  pane(2.12,TOP-1.2,0,(TOP-0.2+1.0)/2,FZ-0.02);
+  pane(DEP-0.08,TOP-1.04,-1.08,(TOP+1.0)/2,CZ,Math.PI/2);pane(DEP-0.08,TOP-1.04,1.08,(TOP+1.0)/2,CZ,Math.PI/2);
+  pane(2.12,DEP-0.08,0,TOP,CZ,0,-Math.PI/2);
+  // cassette elevator (front-left) with stacked wafer frames
+  const cass=new THREE.Group();cass.position.set(-0.6,1.0,1.25);g.add(cass);
+  box(0.62,0.06,0.62,M(0x4b5660,{metalness:.4}),0,0.03,0,cass);
+  const cg=new THREE.Group();cg.position.y=0.06;cass.add(cg);
+  const cmat=M(0x2e3438,{roughness:.4});
+  [-0.27,0.27].forEach(x=>box(0.03,0.5,0.56,cmat,x,0.25,0,cg));box(0.56,0.03,0.56,cmat,0,0.5,0,cg);
+  for(let i=0;i<10;i++)box(0.5,0.006,0.52,M(0xb5bcc2,{metalness:.7,roughness:.3}),0,0.04+i*0.045,0,cg);
+  // spinner cleaning table (front-right)
+  const bowl=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.27,0.14,40,1,true),M(0x8f989f,{metalness:.5,side:THREE.DoubleSide}));bowl.position.set(0.55,1.07,1.25);g.add(bowl);
+  const spinT=cyl(0.2,0.2,0.03,M(0x3a3f44),0.55,1.06,1.25,g,32);
+  box(0.03,0.006,0.38,M(0xb5bcc2),0,0.017,0,spinT);
+  // transfer rail between cassette, chuck and spinner
+  box(1.7,0.04,0.06,steel,0,1.9,1.0,g);
+  // touch-panel monitor on the right front corner
+  const mon=new THREE.Group();mon.position.set(1.2,1.62,1.42);mon.rotation.y=0.55;g.add(mon);
+  box(0.03,0.03,0.22,frame,-0.02,0,-0.12,mon);
+  box(0.5,0.36,0.035,M(0x1a1f24),0,0,0.0,mon);
+  const sc=document.createElement('canvas');sc.width=256;sc.height=184;const stex=new THREE.CanvasTexture(sc);
+  const screen=new THREE.Mesh(new THREE.PlaneGeometry(0.46,0.33),new THREE.MeshBasicMaterial({map:stex}));screen.position.z=0.019;mon.add(screen);
+  // X axis rail + motor + tag
+  box(0.26,0.04,1.4,steel,0,1.02,0,g);
+  box(0.22,0.18,0.22,dark,0,1.1,-0.78,g);
+  cyl(0.06,0.06,0.1,steel,0,1.1,-0.64,g,16).rotation.x=Math.PI/2;
+  box(0.065,0.012,0.065,M(0x15191d),0,1.196,-0.78,g);
+  const xLed=new THREE.MeshStandardMaterial({color:0x444444,emissive:0x444444,emissiveIntensity:.6});
+  box(0.018,0.004,0.018,xLed,0.016,1.204,-0.765,g);
+  // chuck table (moves along z) + wafer (rotates)
+  const tg=new THREE.Group();g.add(tg);
+  box(0.52,0.06,0.52,M(0x5b636a,{metalness:.5}),0,1.05,0,tg);
+  cyl(0.36,0.36,0.05,M(0x8a9096,{roughness:.8}),0,1.105,0,tg,40);
+  const wg=new THREE.Group();wg.position.y=1.131;tg.add(wg);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(0.40,0.47,48),M(0xb5bcc2,{metalness:.8,roughness:.3,side:THREE.DoubleSide}));ring.rotation.x=-Math.PI/2;wg.add(ring);
+  const tape=new THREE.Mesh(new THREE.CircleGeometry(0.40,48),new THREE.MeshStandardMaterial({color:0x7e93b8,transparent:true,opacity:.55}));tape.rotation.x=-Math.PI/2;tape.position.y=-0.001;wg.add(tape);
+  const wc=document.createElement('canvas');wc.width=wc.height=256;const wctx=wc.getContext('2d');const wtex=new THREE.CanvasTexture(wc);
+  const wafer=new THREE.Mesh(new THREE.CircleGeometry(WR,64),new THREE.MeshStandardMaterial({map:wtex,metalness:.6,roughness:.25}));wafer.rotation.x=-Math.PI/2;wafer.position.y=0.002;wg.add(wafer);
+  // bridge
+  box(1.5,0.1,0.16,M(0x3a434b,{metalness:.4}),0,1.72,0,g);
+  // spindles
+  const sp=[0,1].map(k=>{
+    const sg=new THREE.Group();g.add(sg);const sgn=k?1:-1;
+    const h=cyl(0.085,0.085,0.5,steel,sgn*0.3,0,0,sg);h.rotation.z=Math.PI/2;
+    const cap=cyl(0.095,0.095,0.08,dark,sgn*0.56,0,0,sg);cap.rotation.z=Math.PI/2;
+    box(0.08,0.36,0.08,dark,sgn*0.42,0.24,0,sg);
+    const bl=new THREE.Group();bl.position.x=sgn*0.035;sg.add(bl);
+    const disc=cyl(0.12,0.12,0.006,M(0x3a3f44,{metalness:.7,roughness:.35}),0,0,0,bl,48);disc.rotation.z=Math.PI/2;
+    box(0.008,0.02,0.22,M(0xdfe3e6,{metalness:.9}),0,0,0,bl);
+    const hub=cyl(0.04,0.04,0.03,steel,sgn*0.02,0,0,sg,20);hub.rotation.z=Math.PI/2;
+    box(0.05,0.08,0.3,M(0x6f7a83,{metalness:.5}),sgn*0.03,0.1,0,sg); // blade cover
+    box(0.065,0.012,0.065,M(0x15191d),sgn*0.3,0.091,0,sg);           // smart tag
+    const led=new THREE.MeshStandardMaterial({color:0x444444,emissive:0x444444,emissiveIntensity:.6});
+    box(0.018,0.004,0.018,led,sgn*0.3+0.016,0.099,0.015,sg);
+    box(0.012,0.012,0.12,M(0x8a939a,{metalness:.6}),sgn*0.02,-0.02,0.12,sg);   // coolant nozzle
+    const spray=new THREE.Mesh(new THREE.ConeGeometry(0.035,0.1,12,1,true),new THREE.MeshBasicMaterial({color:0x9fdcf0,transparent:true,opacity:.28,depthWrite:false}));
+    spray.position.set(0,-0.08,0.13);spray.visible=false;sg.add(spray);
+    const tl=new THREE.Mesh(new THREE.PlaneGeometry(0.12,0.06),new THREE.MeshBasicMaterial({map:labelTex('Y'+(k+1),'#2a3138','#e4e8ea')}));
+    tl.position.set(sgn*0.3,0,0.087);sg.add(tl);
+    return {sg,bl,led,spray};
+  });
+  // signal tower
+  cyl(0.015,0.015,0.16,steel,-0.95,TOP+0.1,1.45,g,8);
+  const tower=['ok','warn','bad'].map((s,i)=>{const mat=new THREE.MeshStandardMaterial({color:0x333333,emissive:0x000000,roughness:.3,transparent:true,opacity:.92});cyl(0.055,0.055,0.09,mat,-0.95,TOP+0.23+i*0.1,1.45,g,20);return mat});
+  cyl(0.06,0.06,0.02,dark,-0.95,TOP+0.53,1.45,g,20);
+  const halo=new THREE.PointLight(0xffffff,0,1.6);halo.position.set(-0.95,TOP+0.4,1.6);g.add(halo);
+  const mc={g,tg,wg,wctx,wtex,sp,xLed,tower,halo,cg,spinT,sc,stex,slot:m%10,
+    st:{phase:'pos',t:0,line:Math.floor(m*1.7)%LINES,dir:0,tz:-0.45,yh:UP_Y,bx:0,theta:0,from:null,prevZ:-0.45}};
+  clearWafer(mc);return mc;
+});
+function clearWafer(mc){
+  const g=mc.wctx;const grd=g.createRadialGradient(110,100,10,128,128,140);grd.addColorStop(0,'#8a8fb8');grd.addColorStop(1,'#3d4570');
+  g.fillStyle=grd;g.fillRect(0,0,256,256);
+  g.strokeStyle='rgba(255,255,255,.10)';g.lineWidth=1;const p=PITCH/(2*WR)*256;
+  for(let v=128%p;v<256;v+=p){g.beginPath();g.moveTo(v,0);g.lineTo(v,256);g.stroke();g.beginPath();g.moveTo(0,v);g.lineTo(256,v);g.stroke()}
+  mc.wtex.needsUpdate=true;
+}
+const toC=v=>(v/(2*WR)+0.5)*256;
+function drawCut(mc,xs,z0,z1,dir){
+  const g=mc.wctx;g.save();g.beginPath();g.arc(128,128,127,0,7);g.clip();g.strokeStyle='rgba(235,240,245,.9)';g.lineWidth=1.6;
+  xs.forEach(x=>{g.beginPath();if(dir===0){g.moveTo(toC(x),toC(z0));g.lineTo(toC(x),toC(z1))}else{g.moveTo(toC(z0),toC(x));g.lineTo(toC(z1),toC(x))}g.stroke()});
+  g.restore();mc.wtex.needsUpdate=true;
+}
+const ease=t=>t<.5?2*t*t:1-(-2*t+2)**2/2;
+const bladeX=(k,line)=>k?0.033+line*PITCH:-0.30+line*PITCH;
+let clockR=0;
+function animMachine(mc,m,dt){
+  const s=mc.st;
+  if(S.mode!=='prod'||Math.abs(S.rpm-PROD_RPM)>1){
+    // idle: blades up, air strokes of the X axis
+    s.yh+=(UP_Y-s.yh)*Math.min(1,dt*4);s.bx+=(0.133-s.bx)*Math.min(1,dt*3);
+    s.tz=0.32*Math.sin(clockR*1.4+m*1.3);s.theta+=(Math.round(s.theta/(Math.PI/2))*(Math.PI/2)-s.theta)*Math.min(1,dt*3);
+    s.phase='pos';s.t=0;s.from=null;
+  }else{
+    s.t+=dt;
+    if(s.phase==='pos'){if(!s.from)s.from={tz:s.tz,yh:s.yh,bx:s.bx};const k=ease(Math.min(1,s.t/0.45));
+      s.tz=s.from.tz+(-0.45-s.from.tz)*k;s.yh=s.from.yh+(UP_Y-s.from.yh)*k;s.bx=s.from.bx+(s.line*PITCH-s.from.bx)*k;
+      if(s.t>=0.45){s.phase='down';s.t=0;s.from=null}}
+    else if(s.phase==='down'){const k=Math.min(1,s.t/0.25);s.yh=UP_Y+(CUT_Y-UP_Y)*k;if(k>=1){s.phase='cut';s.t=0;s.prevZ=-0.45}}
+    else if(s.phase==='cut'){const k=Math.min(1,s.t/1.4);s.tz=-0.45+0.9*k;
+      drawCut(mc,[bladeX(0,s.line),bladeX(1,s.line)],-s.prevZ,-s.tz,s.dir);s.prevZ=s.tz;
+      if(k>=1){s.phase='up';s.t=0}}
+    else if(s.phase==='up'){const k=Math.min(1,s.t/0.2);s.yh=CUT_Y+(UP_Y-CUT_Y)*k;
+      if(k>=1){s.line++;s.t=0;if(s.line>=LINES){s.line=0;s.dir++;if(s.dir>=2){s.dir=0;s.phase='swap'}else{s.phase='rot';s.from={th:s.theta}}}else s.phase='pos'}}
+    else if(s.phase==='rot'){const k=ease(Math.min(1,s.t/0.8));s.theta=s.from.th+Math.PI/2*k;s.tz+=(0-s.tz)*Math.min(1,dt*4);if(s.t>=0.8){s.phase='pos';s.t=0;s.from=null}}
+    else if(s.phase==='swap'){s.tz+=(0.45-s.tz)*Math.min(1,dt*3);if(s.t>1.6){s.theta-=Math.PI;clearWafer(mc);s.phase='pos';s.t=0;s.from=null}}
+  }
+  mc.tg.position.z=s.tz;mc.wg.rotation.y=s.theta;
+  mc.sp.forEach(p=>p.spray.visible=S.mode==='prod'&&s.phase==='cut');
+  if(S.mode==='prod'&&s.phase==='swap'){mc.spinT.rotation.y+=dt*25;if(!s.slotDone){mc.slot=(mc.slot+1)%10;s.slotDone=true}}else s.slotDone=false;
+  mc.cg.position.y+=((0.06+0.45-mc.slot*0.045)-mc.cg.position.y)*Math.min(1,dt*3);
+  mc.sp.forEach((p,k)=>{p.sg.position.set((k?0.033:-0.30)+s.bx-(k?0.035:-0.035),s.yh,0)});
+  const spin=S.rpm/50000*48*dt;mc.sp.forEach(p=>p.bl.rotation.x+=spin+Math.random()*0.4*(S.rpm>0));
+}
+
+
+// ================= data simulation =================
+let sampT=0;
+function cutting(m){return S.mode==='prod'&&machines[m].st.phase==='cut'}
+function tickData(dts,dt){
+  const tgt=targetRpm(),rate=12000*dt;
+  if(Math.abs(tgt-S.rpm)<=rate)S.rpm=tgt;else{S.rpm+=Math.sign(tgt-S.rpm)*rate;S.winValid=false}
+  const prod=S.mode==='prod',f=S.rpm/50000;
+  for(let m=0;m<NM;m++)for(let s=0;s<3;s++){
+    const ex=Math.max(0,trueVal(m,s,targetRpm(),prod)/(s<2?GREEN(Math.max(35000,targetRpm())):3.1)-1);
+    const tss=s<2?22+9*f+3*ex*f+(prod?1.5:0):24+(prod?3:1)+4*ex;
+    temps[m][s]+=(tss-temps[m][s])*(1-Math.exp(-dts/90));
+  }
+  sampT+=dts;
+  while(sampT>=0.5){sampT-=0.5;
+    const a=0.05+0.5*f*f;
+    for(let m=0;m<NM;m++)for(let s=0;s<3;s++){
+      const mm=Math.sqrt(trueVal(m,s,targetRpm(),prod)/(s<2?3.2:3.1)),c=cutting(m);
+      let v;if(s<2)v={x:0.55*a*mm,y:a*mm,z:0.7*a*mm};else{const b=0.03+0.1*a+(prod?0.12:0.06);v={x:0.4*b*mm,y:0.5*b*mm,z:b*mm}}
+      if(c){v.x*=1.25;v.z*=1.15}
+      ['x','y','z'].forEach(k=>v[k]*=1+0.06*gn());
+      const arr=samples[m][s];arr.push(v);if(arr.length>240)arr.shift()}
+  }
+  S.win+=dts;
+  if(S.win>=WIN){S.win-=WIN;const k=key();
+    if(S.winValid&&S.winKey===k&&S.rpm===tgt){
+      (pend[k]=pend[k]||[]).push([...Array(NM)].map((_,m)=>[0,1,2].map(s=>decayWindow(m,s,S.rpm,prod))));
+      while(pend[k].length>TRIM)(results[k]=results[k]||[]).push(pend[k].shift());
+      onWindow()}
+    S.winValid=S.rpm===tgt;S.winKey=k}
+}
+function onWindow(){
+  if(S.sweep){const sw=S.sweep;if((results[key()]||[]).length>=sw.start+3){sw.idx++;if(sw.idx>=IDLE.length){S.sweep=null;toast('Speed sweep finished')}else{setRpm(IDLE[sw.idx]);sw.start=(results[key()]||[]).length}}renderSweep()}
+}
+function invalidate(){const old=S.winKey;S.trimmed=(pend[old]||[]).length;pend[old]=[];S.winValid=false;S.winKey=key();S.win=0}
+
+// ================= UI =================
+const $=id=>document.getElementById(id);
+const rpmBtns=IDLE.map(r=>{const b=document.createElement('button');b.id='rpm'+r;b.innerHTML=(r/1000)+'k<small>RPM</small>';b.onclick=()=>{S.sweep=null;setRpm(r);renderSweep()};$('rpms').appendChild(b);return b});
+function setRpm(r){if(r!==S.rpmSet||S.mode!=='idle'){S.rpmSet=r;invalidate()}rpmBtns.forEach((b,k)=>b.setAttribute('aria-pressed',IDLE[k]===r?'true':'false'))}
+function setMode(m){if(m!==S.mode){S.mode=m;invalidate()}S.sweep=null;
+  $('mIdle').setAttribute('aria-pressed',m==='idle');$('mProd').setAttribute('aria-pressed',m==='prod');
+  $('rpmBox').hidden=m!=='idle';$('prodBox').hidden=m!=='prod';renderSweep();
+  if(m==='prod'&&!(results.prod&&results.prod.length))toast('Production: averages start after the first 60 s of windows')}
+$('mIdle').onclick=()=>setMode('idle');$('mProd').onclick=()=>setMode('prod');
+$('bSweep').onclick=()=>{if(S.sweep){S.sweep=null;renderSweep();return}S.sweep={idx:0,start:0};setRpm(IDLE[0]);S.sweep.start=(results[key()]||[]).length;renderSweep();toast('Auto sweep: 3 kept windows per speed (plus 60 s held for tail trim)')};
+function renderSweep(){$('bSweep').textContent=S.sweep?'Stop sweep':'Auto sweep 4 speeds';$('sweepNote').textContent=S.sweep?'Step '+(S.sweep.idx+1)+' / 4':''}
+[1,5,20].forEach(v=>{const b=document.createElement('button');b.id='sp'+v;b.textContent=v+'×';b.setAttribute('aria-pressed',v===S.speed);b.onclick=()=>setSpeed(v);$('speeds').appendChild(b)});
+function setSpeed(v){S.speed=v;document.querySelectorAll('#speeds button').forEach(x=>x.setAttribute('aria-pressed',x.id==='sp'+v))}
+function clearAll(){for(const k in results)delete results[k];for(const k in pend)delete pend[k];S.winValid=false;S.win=0}
+function setScen(s,quiet){scen=s;$('scPreset').setAttribute('aria-pressed',s==='preset');$('scNormal').setAttribute('aria-pressed',s==='normal');clearAll();if(!quiet)toast(s==='preset'?'Two abnormal saws loaded; averages cleared':'All motors healthy; averages cleared')}
+$('scPreset').onclick=()=>setScen('preset');$('scNormal').onclick=()=>setScen('normal');
+$('bClear').onclick=()=>{clearAll();toast('Averages cleared; collecting again')};
+
+// fleet table
+const fl=$('fleet');
+fl.innerHTML='<span></span><span class="h">Saw</span><span class="h">Y1 spindle</span><span class="h">Y2 spindle</span><span class="h">X motor</span>';
+const cells=[...Array(NM)].map((_,m)=>{
+  const lamp=document.createElement('i');lamp.className='lamp';fl.appendChild(lamp);
+  const id=document.createElement('span');id.className='mid';id.textContent='M'+(m+1);fl.appendChild(id);
+  const cs=[0,1,2].map(s=>{const b=document.createElement('button');b.className='cell';b.id='c'+m+s;b.innerHTML='<span class="v">—</span><span class="r">—</span><span class="t">—</span>';
+    b.onclick=()=>select(m,s);fl.appendChild(b);return {el:b,v:b.querySelector('.v'),r:b.querySelector('.r'),t:b.querySelector('.t')}});
+  return {lamp,cs};
+});
+function select(m,s){S.selM=m;S.selS=s;cells.forEach((c,i)=>c.cs.forEach((x,j)=>x.el.setAttribute('aria-pressed',i===m&&j===s?'true':'false')))}
+
+// tabs
+const TABS=[['rank','Ranking'],['mode','Aging mode'],['ratio','Y1 / Y2 ratio']];
+const tabBtns=TABS.map(([id,n])=>{const b=document.createElement('button');b.id='tab-'+id;b.textContent=n;b.onclick=()=>setTab(id);$('tabs').appendChild(b);return b});
+function setTab(t){S.tab=t;tabBtns.forEach((b,i)=>b.setAttribute('aria-pressed',TABS[i][0]===t?'true':'false'));$('pRank').hidden=t!=='rank';$('pMode').hidden=t!=='mode';$('pRatio').hidden=t!=='ratio';renderTabs()}
+const badge=c=>c?'<span class="mb m'+c.mode+'">'+c.mode+(c.resRpm?' @'+(c.resRpm/1000)+'k':'')+'</span>':'<span class="mb">—</span>';
+function renderTabs(){
+  if(S.tab==='mode'){
+    let h='<thead><tr><th>Saw</th><th>Y1 mode</th><th>Y2 mode</th><th>Slope Y1 / Y2</th><th>Y1 / Y2</th><th style="text-align:left">Recommended action</th></tr></thead><tbody>';
+    for(let m=0;m<NM;m++){const a=classify(m,0),b=classify(m,1);
+      if(!a||!b){h+='<tr><td>M'+(m+1)+'</td><td colspan="5" style="text-align:left;color:var(--muted)">Needs all four idle speeds</td></tr>';continue}
+      const div=a.mode!==b.mode,worst=['C','D1','B','D2','A'].find(x=>x===a.mode||x===b.mode);
+      const act=(worst==='A'&&!div)?ACTION.A:ACTION[worst]+(div?'. '+ACTION.DIV:'');
+      h+='<tr'+(m===S.selM?' class="sel"':'')+'><td>M'+(m+1)+'</td><td>'+badge(a)+'</td><td>'+badge(b)+'</td><td>'+a.slope.toFixed(2)+' / '+b.slope.toFixed(2)+'</td><td>'+(div?'<span style="color:var(--warn)">Diverge</span>':'Consistent')+'</td><td class="act">'+act+'</td></tr>'}
+    $('tMode').innerHTML=h+'</tbody>';
+    $('tabHint').textContent='Slope from a linear fit of the four idle averages (x in krpm). A: slope ≤ '+SLOPE_REF+' · B: slope > '+SLOPE_REF+', no spike · C: one speed > '+RES_K+'× the mean of the others and above the fit line · D1/D2: negative slope with / without an idle-end spike.';
+    $('tabNote').textContent='';
+  }else if(S.tab==='ratio'){
+    let h='<thead><tr><th>Saw</th>'+IDLE.map(r=>'<th>'+(r/1000)+'k<br><span style="font-size:10px">'+BAND[r][0]+'–'+BAND[r][1]+'</span></th>').join('')+'<th>CV</th></tr></thead><tbody>';
+    for(let m=0;m<NM;m++){const q=ratios(m);
+      h+='<tr'+(m===S.selM?' class="sel"':'')+'><td>M'+(m+1)+'</td>'+q.r.map((v,i)=>'<td class="'+(q.out[i]?'bad':'')+'">'+(v===null?'—':v.toFixed(2)+(q.out[i]==='low'?' ↓':q.out[i]==='high'?' ↑':''))+'</td>').join('')+'<td class="'+(q.cv!==null&&q.cv>CV_TH?'warn':'')+'">'+(q.cv===null?'—':q.cv.toFixed(2))+'</td></tr>'}
+    $('tRatio').innerHTML=h+'</tbody>';
+    $('tabHint').textContent='Ratio = Y1 avg ÷ Y2 avg, judged per speed against its own health band (geometric centre ×/÷ geometric SD). Red cells are out of band; CV > '+CV_TH+' flags a motor that breaks down at only one speed.';
+    $('tabNote').textContent='';
+  }else{
+    $('tabHint').textContent=S.mode==='prod'?'Production: each spindle against the median of all 10 spindles, each X motor against the median of the 5 X motors. Above +30% yellow, above +50% red.':'Idle spindles against the alarm lines: below green = normal, green to yellow = slightly over, above yellow = clearly over.';
+  }
+}
+
+const HEX={ok:0x4cc38a,warn:0xf0c23c,bad:0xef5f55,off:0x56616b};
+let scrT=0;
+function drawScreen(mc,m,st,w){
+  const g=mc.sc.getContext('2d'),W=256,H=184;g.fillStyle='#0f1316';g.fillRect(0,0,W,H);
+  g.fillStyle=C[w]||C.off;g.fillRect(0,0,W,22);g.fillStyle='#13171b';g.font='600 15px "Chakra Petch",sans-serif';g.textBaseline='middle';
+  g.fillText('M'+(m+1)+'  '+(w==='bad'?'ALARM':w==='warn'?'CHECK':w==='ok'?'RUN':'WAIT'),8,12);
+  g.fillStyle='#e4e8ea';g.font='600 26px "Chakra Petch",sans-serif';g.fillText(fmt(Math.round(S.rpm/100)*100),8,46);
+  g.fillStyle='#8d99a3';g.font='13px "Chakra Petch",sans-serif';g.fillText((S.mode==='prod'?'PROD':'IDLE')+' RPM',150,48);
+  ['Y1','Y2','X'].forEach((n,s)=>{const y=82+s*34,sv=st?st.st[m][s]:'off';g.fillStyle=C[sv];g.fillRect(8,y-10,6,20);
+    g.fillStyle='#e4e8ea';g.font='600 16px "Chakra Petch",sans-serif';g.fillText(n,22,y);
+    g.font='16px "Chakra Petch",sans-serif';g.fillText(st?st.av[m][s].toFixed(2):'--',70,y);
+    g.fillStyle='#8d99a3';g.fillText(temps[m][s].toFixed(1)+'°C',170,y)});
+  mc.stex.needsUpdate=true;
+}
+function renderStatus(){
+  const k=key(),st=stats(k),prod=S.mode==='prod',now=performance.now();
+  $('rpmNow').textContent=fmt(Math.round(S.rpm/100)*100);
+  $('modeNow').textContent=(prod?'Production':'Idle')+' · RPM'+(S.rpm!==targetRpm()?' · changing speed':'');
+  const G=GREEN(prod?PROD_RPM:S.rpmSet);
+  const L=(n,v,th)=>'<div class="mline"><span class="k">'+n+'</span><span class="v">'+v+'</span><span class="th">'+th+'</span></div>';
+  $('medLines').innerHTML=prod
+    ?L('Spindle median',st?st.spMed.toFixed(2):'—',st?'yellow &gt; '+(st.spMed*P_Y).toFixed(2)+'　red &gt; '+(st.spMed*P_R).toFixed(2):'collecting…')+L('X median',st?st.xMed.toFixed(2):'—',st?'yellow &gt; '+(st.xMed*P_Y).toFixed(2)+'　red &gt; '+(st.xMed*P_R).toFixed(2):'collecting…')
+    :L('Green line',G.toFixed(2),'3.65 + 0.18 × (krpm − 35)')+L('Yellow line',(G*YEL_K).toFixed(2),'green × 1.3')+L('X median',st?st.xMed.toFixed(2):'—',st?'yellow &gt; '+(st.xMed*P_Y).toFixed(2)+'　red &gt; '+(st.xMed*P_R).toFixed(2):'collecting…');
+  $('medCond').textContent=prod?'Production · 40k RPM':'Idle · '+(S.rpmSet/1000)+'k RPM';
+  const held=(pend[k]||[]).length;
+  $('winCnt').textContent=(st?st.n:0)+' kept · '+held+' held';
+  $('prog').style.width=(S.winValid?S.win/WIN*100:0)+'%';
+  $('trimNote').textContent='The newest 60 s are held back and dropped when the speed changes (deceleration tail)'+(S.trimmed?' · last change trimmed '+S.trimmed+' windows':'')+'.';
+  scrT=(scrT+1)%8;
+  for(let m=0;m<NM;m++){
+    const c=cells[m],w=st?st.worst[m]:'off';c.lamp.className='lamp '+w;
+    c.cs.forEach((x,s)=>{const sv=st?st.st[m][s]:'off';x.el.classList.toggle('warn',sv==='warn');x.el.classList.toggle('bad',sv==='bad');
+      x.v.textContent=st?st.av[m][s].toFixed(2):'—';
+      x.r.textContent=!st?'—':(s<2&&!prod)?(st.ref[m][s]).toFixed(2)+'× green':((st.ref[m][s]>=1?'+':'')+((st.ref[m][s]-1)*100).toFixed(0)+'% vs median');
+      if(s<2){const cl=classify(m,s);x.t.innerHTML=cl?badge(cl):'<span class="mb">—</span>'}else x.t.textContent=temps[m][s].toFixed(1)+'°C'});
+    const mc=machines[m];
+    if(scrT===0)drawScreen(mc,m,st,w);
+    mc.tower.forEach((mat,i)=>{const on=['ok','warn','bad'][i]===w;const col=HEX[['ok','warn','bad'][i]];mat.color.setHex(on?col:0x2a2f34);mat.emissive.setHex(on?col:0);
+      mat.emissiveIntensity=on?(w==='bad'?(Math.sin(now/160)>0?1.8:0.3):1.2):0});
+    mc.halo.color.setHex(HEX[w]);mc.halo.intensity=w==='off'?0:(w==='ok'?0.25:0.9);
+    const leds=[mc.sp[0].led,mc.sp[1].led,mc.xLed];
+    leds.forEach((l,s)=>{const sv=st?st.st[m][s]:'off';const col=sv==='ok'||sv==='off'?0x4cc8f0:HEX[sv];l.color.setHex(col);l.emissive.setHex(col);l.emissiveIntensity=(Math.sin(now/90+m*2+s)>0.55)?1.6:0.25});
+  }
+  cells.forEach((c,i)=>c.cs.forEach((x,j)=>x.el.setAttribute('aria-pressed',i===S.selM&&j===S.selS?'true':'false')));
+  $('vibTitle').textContent='M'+(S.selM+1)+' · '+SENS[S.selS]+' triaxial vibration RMS · last 2 min';
+  $('tempNow').textContent=temps[S.selM][S.selS].toFixed(1)+' °C';
+  if(S.tab!=='rank'&&scrT%4===0)renderTabs();
+}
+function prepCanvas(cv){const dpr=Math.min(devicePixelRatio,2),W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return [null,0,0];if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr)}const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);return [g,W,H]}
+function niceMax(v){const p=10**Math.floor(Math.log10(v||1));for(const m of[1,2,2.5,5,10])if(m*p>=v)return m*p;return 10*p}
+function axes(g,W,H,max,L,top,bot){g.font='10px "Chakra Petch",sans-serif';g.fillStyle=C.muted;g.strokeStyle=C.line;g.lineWidth=1;g.textBaseline='middle';
+  [0,0.5,1].forEach(f=>{const y=Math.round(top+(H-top-bot)*(1-f))+.5;g.beginPath();g.moveTo(L,y);g.lineTo(W,y);g.stroke();g.textAlign='right';g.fillText((max*f).toFixed(max<2?2:1),L-4,y)})}
+function drawVib(){
+  const [g,W,H]=prepCanvas($('cVib'));if(!g)return;const d=samples[S.selM][S.selS],L=32;
+  const max=niceMax(Math.max(0.05,...d.map(s=>Math.max(s.x,s.y,s.z)))*1.1);axes(g,W,H,max,L,4,4);
+  const X=i=>L+(W-L)*(i+240-d.length)/239,Y=v=>4+(H-8)*(1-v/max);
+  [['x',C.ax],['y',C.ay],['z',C.az]].forEach(([k,col])=>{g.beginPath();d.forEach((s,i)=>i?g.lineTo(X(i),Y(s[k])):g.moveTo(X(i),Y(s[k])));g.strokeStyle=col;g.lineWidth=1.4;g.stroke()});
+}
+function drawProfile(){
+  const [g,W,H]=prepCanvas($('cProf'));if(!g)return;const m=S.selM,s=S.selS,L=32,top=14,bot=18;
+  const sts=IDLE.map(r=>stats('r'+r)),cl=s<2?classify(m,s):null;
+  const y=sts.map(x=>x?x.av[m][s]:null);
+  $('profTitle').textContent='M'+(m+1)+' · '+SENS[s]+' idle speed profile'+(cl?' · slope '+cl.slope.toFixed(2)+' /krpm · mode '+cl.mode+(cl.resRpm?' (resonance '+cl.resRpm/1000+'k)':'')+' · '+MODE_TXT[cl.mode]:'');
+  const vals=y.filter(v=>v!==null);
+  if(!vals.length){g.fillStyle=C.muted;g.font='12px "Noto Sans TC",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText('Collecting idle averages…',W/2,H/2);return}
+  const max=niceMax(Math.max(...vals,s<2?GREEN(50000)*YEL_K:0)*1.12);axes(g,W,H,max,L,top,bot);
+  const bw=(W-L)/4,X=i=>L+bw*(i+0.5),Y=v=>top+(H-top-bot)*(1-v/max);
+  y.forEach((v,i)=>{g.fillStyle=C.muted;g.font='11px "Chakra Petch",sans-serif';g.textAlign='center';g.textBaseline='alphabetic';g.fillText(IDLE[i]/1000+'k',X(i),H-4);
+    if(v===null)return;const sv=sts[i].st[m][s];
+    g.fillStyle=C[sv];g.globalAlpha=.75;g.fillRect(X(i)-bw*0.28,Y(v),bw*0.56,Y(0)-Y(v));g.globalAlpha=1;
+    if(cl&&cl.ri===i){g.strokeStyle=C.fg;g.lineWidth=2;g.strokeRect(X(i)-bw*0.28,Y(v),bw*0.56,Y(0)-Y(v))}
+    g.fillStyle=C.fg;g.font='600 11px "Chakra Petch",sans-serif';g.fillText(v.toFixed(2),X(i),Y(v)-4)});
+  if(s<2){const seg=(f,col,dash)=>{g.strokeStyle=col;g.lineWidth=2;g.setLineDash(dash);g.beginPath();IDLE.forEach((r,i)=>{const yy=Y(f(r));i?g.lineTo(X(i),yy):g.moveTo(X(i),yy)});g.stroke();g.setLineDash([])};
+    seg(GREEN,C.ok,[]);seg(r=>GREEN(r)*YEL_K,C.warn,[5,4])}
+  if(cl){g.strokeStyle=C.fg;g.lineWidth=1.5;g.setLineDash([2,3]);g.beginPath();g.moveTo(X(0)-bw*0.4,Y(cl.icpt+cl.slope*(XS[0]-2)));g.lineTo(X(3)+bw*0.4,Y(cl.icpt+cl.slope*(XS[3]+2)));g.stroke();g.setLineDash([])}
+}
+function drawRank(){
+  const [g,W,H]=prepCanvas($('cRank'));if(!g)return;const st=stats(key()),L=32,top=16,bot=30;
+  $('tabNote').textContent=S.tab==='rank'?'All 10 spindles · '+(st?(st.prod?'production 40k':'idle '+st.rpm/1000+'k'):'collecting'):'';
+  if(!st){g.fillStyle=C.muted;g.font='12px "Noto Sans TC",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText('Waiting for the first kept 10 s window…',W/2,H/2);return}
+  const items=[];for(let m=0;m<NM;m++)for(let s=0;s<2;s++)items.push({m,s,v:st.av[m][s],st:st.st[m][s]});
+  items.sort((a,b)=>a.v-b.v);
+  const lines=st.prod?[[st.spMed,C.muted,'median'],[st.spMed*P_Y,C.warn,'+30%'],[st.spMed*P_R,C.bad,'+50%']]:[[st.G,C.ok,'green '+st.G.toFixed(2)],[st.Yl,C.warn,'yellow '+st.Yl.toFixed(2)]];
+  const max=niceMax(Math.max(...items.map(i=>i.v),...lines.map(l=>l[0]))*1.1);axes(g,W,H,max,L,top,bot);
+  const bw=(W-L)/items.length,X=i=>L+bw*(i+0.5),Y=v=>top+(H-top-bot)*(1-v/max);
+  items.forEach((it,i)=>{const sel=it.m===S.selM&&it.s===S.selS;g.fillStyle=C[it.st];g.globalAlpha=sel?1:.78;g.fillRect(X(i)-bw*0.32,Y(it.v),bw*0.64,Y(0)-Y(it.v));g.globalAlpha=1;
+    if(sel){g.strokeStyle=C.fg;g.lineWidth=2;g.strokeRect(X(i)-bw*0.32,Y(it.v),bw*0.64,Y(0)-Y(it.v))}
+    g.fillStyle=C.fg;g.font='10px "Chakra Petch",sans-serif';g.textAlign='center';g.textBaseline='alphabetic';g.fillText(it.v.toFixed(1),X(i),Y(it.v)-3);
+    g.fillStyle=C.muted;g.fillText('M'+(it.m+1),X(i),H-17);g.fillText(SENS[it.s],X(i),H-5)});
+  lines.forEach(([v,col,t])=>{g.strokeStyle=col;g.lineWidth=1.5;g.setLineDash(col===C.ok?[]:[5,4]);g.beginPath();g.moveTo(L,Y(v));g.lineTo(W,Y(v));g.stroke();g.setLineDash([]);
+    g.fillStyle=col;g.font='600 10px "Chakra Petch",sans-serif';g.textAlign='left';g.textBaseline='bottom';g.fillText(t,L+4,Y(v)-2)});
+}
+let toastT;function toast(m){if(document.body.classList.contains('demo'))return;const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200)}
+
+// ================= booth auto demo =================
+const DEMO_BRAND='Smart Tag', DEMO_SLOGAN='Simple, fast, hassle-free digital transformation for factories.';
+const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+const SHOT={
+  wide:t=>{const a=0.28+0.035*t;return {tgt:V(0,1.3,0.3),pos:V(16*Math.sin(a),7.0,16*Math.cos(a))}},
+  spTag:(m,k)=>t=>{const p=machines[m].sp[k].sg.position,x=MX(m)+p.x+(k?0.3:-0.3);const tg=V(x,p.y+0.09,0);return {tgt:tg,pos:V(x+(k?0.5:-0.5),tg.y+0.35,0.95+0.05*Math.sin(t*.4))}},
+  xTag:m=>t=>{const tg=V(MX(m),1.2,-0.78);return {tgt:tg,pos:V(MX(m)+0.7,1.75,0.35+0.05*Math.sin(t*.4))}},
+  focus:(a,b)=>t=>{const x=(MX(a)+MX(b??a))/2,d=b===undefined?1:1.6;return {tgt:V(x,1.3,0.3),pos:V(x+1.3*d+0.4*Math.sin(t*.2),3.2*d,5.0*d)}},
+  close:m=>t=>({tgt:V(MX(m),1.15,0),pos:V(MX(m)+0.9+0.2*Math.sin(t*.25),1.95,1.6)})
+};
+const kept=n=>()=>{const st=stats(key());return st&&st.n>=n};
+const STEPS=[
+  {d:7,shot:SHOT.wide,t:'Five wafer dicing saws',s:'A 3×3 cm Smart Tag sits on every Y1 spindle, Y2 spindle and X motor',go(){setScen('preset',true);setMode('idle');setRpm(35000);setSpeed(20);select(0,0);setTab('rank')}},
+  {d:6,shot:SHOT.spTag(0,0),t:'Smart Tag on the spindle',s:'Temperature and triaxial vibration; decay rate is computed outside the machine'},
+  {d:6,shot:SHOT.xTag(0),t:'One more on the X motor',s:'The X motor pulls the wafer through the spinning blades',go(){select(0,2)}},
+  {d:8,shot:SHOT.wide,t:'Idle 35,000 RPM · the baseline',s:'Green line 3.65, yellow line = green × 1.3. All ten spindles start below green',go(){select(1,1)},wait:kept(3),s0:'Collecting 10 s windows…'},
+  {d:7,shot:SHOT.wide,t:'Idle 40,000 RPM',s:'All ten spindles stay under the green line. The last 60 s of each step is trimmed',go(){setRpm(40000)},wait:kept(3),s0:'Changing speed; the previous step’s last 60 s is dropped…'},
+  {d:8,shot:SHOT.focus(1),t:'Idle 45,000 RPM',s:'M2 Y2 passes the green line → <em>yellow</em>; the other spindles stay normal',go(){setRpm(45000);select(1,1)},wait:kept(3),s0:'Changing speed; the previous step’s last 60 s is dropped…'},
+  {d:8,shot:SHOT.focus(4),t:'Idle 50,000 RPM',s:'M5 Y1 is far above the yellow line → <strong>red</strong>; M2 Y2 sits between green and yellow',go(){setRpm(50000);select(4,0)},wait:kept(3),s0:'Changing speed; the previous step’s last 60 s is dropped…'},
+  {d:9,shot:SHOT.focus(1),t:'Aging mode from four speeds',s:'M2 Y2 rises evenly with a slope above 0.18 → <em>mode B, uniform aging</em>',go(){setTab('mode');select(1,1);$('pMode').classList.add('hl')}},
+  {d:9,shot:SHOT.focus(4),t:'Resonance is not “the highest value”',s:'It is the speed that sticks out of the regression line. M5 Y1 at 50k → <strong>mode C</strong>: avoid that speed in production',go(){select(4,0)},end(){$('pMode').classList.remove('hl')}},
+  {d:8,shot:SHOT.wide,t:'Y1 / Y2 consistency',s:'Each speed has its own health band; out-of-band saws are repaired motor by motor',go(){setTab('ratio');$('pRatio').classList.add('hl')},end(){$('pRatio').classList.remove('hl')}},
+  {d:9,shot:SHOT.close(1),t:'Production at 40,000 RPM',s:'Both blades cut while the X motor pulls the wafer; each motor is compared with the fleet median',go(){setTab('rank');setMode('prod');select(1,1)}},
+  {d:9,shot:SHOT.focus(1),t:'Monitoring while cutting',s:'M2 Y2 turns <strong>red</strong> under cutting load. M5 cuts at 40k, away from its 50k resonance, so it stays normal',wait:kept(4),s0:'Collecting production windows…'},
+  {d:7,shot:SHOT.wide,t:DEMO_BRAND,s:DEMO_SLOGAN}
+];
+const D={on:false,i:-1,t:0,wt:0,prevSpeed:5,idle:0};
+function enterStep(i){
+  const prev=STEPS[D.i];if(prev&&prev.end)prev.end();
+  D.i=i%STEPS.length;D.t=0;D.wt=0;const st=STEPS[D.i];if(st.go)st.go();
+  $('capK').innerHTML=STEPS.map((_,k)=>'<i class="'+(k<=D.i?'on':'')+'"></i>').join('')+'<span style="margin-left:6px">'+(D.i+1)+' / '+STEPS.length+'</span>';
+  $('capT').textContent=st.t;
+}
+function startDemo(){if(D.on)return;D.on=true;D.prevSpeed=S.speed;document.body.classList.add('demo');$('cap').hidden=false;controls.enabled=false;
+  try{navigator.wakeLock&&navigator.wakeLock.request('screen').catch(()=>{})}catch(e){}
+  enterStep(0)}
+function stopDemo(){if(!D.on)return;D.on=false;const st=STEPS[D.i];if(st&&st.end)st.end();
+  document.body.classList.remove('demo');$('cap').hidden=true;controls.enabled=true;setSpeed(D.prevSpeed);D.idle=0}
+function tickDemo(dt){
+  if(!D.on){D.idle+=dt;if(D.idle>90)startDemo();return}
+  const st=STEPS[D.i];D.t+=dt;D.wt+=dt;
+  const ready=!st.wait||st.wait()||D.wt>st.d+14;
+  $('capS').innerHTML=ready?st.s:st.s0;
+  if(!ready)D.t=Math.min(D.t,st.d-1.5);
+  if(D.t>=st.d){enterStep(D.i+1);return}
+  const far=camera.aspect<1.1?1.6:1,shot=st.shot(D.t+D.i*7);
+  const pos=shot.tgt.clone().add(shot.pos.clone().sub(shot.tgt).multiplyScalar(far));
+  const k=1-Math.exp(-dt*1.6);camera.position.lerp(pos,k);controls.target.lerp(shot.tgt,k);camera.lookAt(controls.target);
+}
+['pointerdown','keydown','wheel','touchstart'].forEach(ev=>addEventListener(ev,e=>{
+  if(e.target&&e.target.closest&&e.target.closest('#bDemo,#bDemo2,#bFull'))return;
+  D.idle=0;if(D.on)stopDemo();
+},{passive:true,capture:true}));
+$('bDemo').onclick=$('bDemo2').onclick=()=>startDemo();
+$('bFull').onclick=()=>{try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>toast('Full screen is not available here'))}catch(e){toast('Full screen is not available here')}};
+
+// ================= loop =================
+function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()}
+new ResizeObserver(resize).observe(stage);resize();
+{const far=camera.aspect<1.1?1.7:1;controls.target.set(0,1.3,0.3);camera.position.set(4*far,6.8*far,15.5*far);controls.update()}
+setRpm(35000);select(0,0);setTab('rank');
+if(location.hash==='#demo')startDemo();
+let last=performance.now(),uiT=0;
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;clockR+=dt;
+  tickData(dt*S.speed,dt);
+  machines.forEach((mc,m)=>animMachine(mc,m,dt));
+  tickDemo(dt);
+  uiT+=dt;if(uiT>0.12){uiT=0;renderStatus();drawVib();drawProfile();if(S.tab==='rank')drawRank();else drawRank()}
+  if(!D.on)controls.update();renderer.render(scene,camera);requestAnimationFrame(frame);
+}
+renderStatus();
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
